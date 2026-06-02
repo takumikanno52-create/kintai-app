@@ -1,0 +1,432 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>勤怠管理</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Noto+Sans+JP:wght@400;500;700&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#f5f4f0;--surface:#fff;--border:#dddbd5;
+  --text:#1a1a1a;--muted:#888580;
+  --accent:#2c5f2e;--warn:#b85c00;--danger:#8b1a1a;
+  --mono:'DM Mono',monospace;--sans:'Noto Sans JP',sans-serif;
+}
+body{background:var(--bg);color:var(--text);font-family:var(--sans);min-height:100vh}
+header{border-bottom:1px solid var(--border);background:var(--surface);padding:0 32px;height:56px;display:flex;align-items:center;justify-content:space-between}
+header h1{font-size:15px;font-weight:700;letter-spacing:.08em;text-transform:uppercase}
+header nav a{font-size:13px;color:var(--muted);text-decoration:none;margin-left:24px;letter-spacing:.04em}
+header nav a:hover{color:var(--text)}
+header nav a.active{color:var(--text);font-weight:700}
+main{max-width:680px;margin:0 auto;padding:48px 24px}
+.clock-block{text-align:center;margin-bottom:40px}
+.clock-block .date{font-size:13px;color:var(--muted);letter-spacing:.12em;text-transform:uppercase;margin-bottom:8px}
+.clock-block .time{font-family:var(--mono);font-size:56px;font-weight:400;letter-spacing:-.02em;line-height:1}
+.status-badge{display:inline-flex;align-items:center;gap:8px;padding:6px 16px;border-radius:4px;font-size:12px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;border:1px solid var(--border);background:var(--surface);margin-bottom:40px}
+.status-badge .dot{width:7px;height:7px;border-radius:50%;background:var(--muted)}
+.status-badge.working .dot{background:var(--accent);animation:pulse 2s infinite}
+.status-badge.breaking .dot{background:var(--warn)}
+.status-badge.ended .dot{background:var(--danger)}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+.btn-group{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:48px}
+.btn-group.single{grid-template-columns:1fr}
+.btn{padding:18px 0;border:1.5px solid var(--border);border-radius:6px;background:var(--surface);font-family:var(--sans);font-size:14px;font-weight:700;letter-spacing:.06em;cursor:pointer;transition:background .15s,border-color .15s,color .15s,transform .1s}
+.btn:hover:not(:disabled){transform:translateY(-1px)}
+.btn:active:not(:disabled){transform:translateY(0)}
+.btn:disabled{opacity:.35;cursor:not-allowed}
+.btn.start{border-color:var(--accent);color:var(--accent)}
+.btn.start:hover:not(:disabled){background:var(--accent);color:#fff}
+.btn.break{border-color:var(--warn);color:var(--warn)}
+.btn.break:hover:not(:disabled){background:var(--warn);color:#fff}
+.btn.resume{border-color:var(--accent);color:var(--accent)}
+.btn.resume:hover:not(:disabled){background:var(--accent);color:#fff}
+.btn.end{border-color:var(--danger);color:var(--danger)}
+.btn.end:hover:not(:disabled){background:var(--danger);color:#fff}
+.summary{display:grid;grid-template-columns:1fr 1fr 1fr;gap:1px;background:var(--border);border:1px solid var(--border);border-radius:6px;overflow:hidden;margin-bottom:40px}
+.summary-item{background:var(--surface);padding:20px 16px;text-align:center}
+.summary-item .label{font-size:11px;color:var(--muted);letter-spacing:.1em;text-transform:uppercase;margin-bottom:6px}
+.summary-item .value{font-family:var(--mono);font-size:24px;font-weight:500}
+.summary-item .value.positive{color:var(--danger)}
+.summary-item .value.negative{color:var(--accent)}
+.log-section h2{font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);margin-bottom:12px}
+.log-list{border:1px solid var(--border);border-radius:6px;overflow:hidden}
+.log-item{display:flex;justify-content:space-between;align-items:center;padding:12px 16px;background:var(--surface);border-bottom:1px solid var(--border);font-size:13px}
+.log-item:last-child{border-bottom:none}
+.log-item .log-type{font-weight:700;letter-spacing:.04em}
+.log-item .log-time{font-family:var(--mono);color:var(--muted)}
+.tabs{display:flex;gap:4px;margin-bottom:32px;border-bottom:1px solid var(--border)}
+.tab-btn{padding:10px 20px;background:none;border:none;border-bottom:2px solid transparent;font-family:var(--sans);font-size:13px;font-weight:700;letter-spacing:.06em;color:var(--muted);cursor:pointer;margin-bottom:-1px;transition:color .15s,border-color .15s}
+.tab-btn.active{color:var(--text);border-bottom-color:var(--text)}
+.tab-panel{display:none}
+.tab-panel.active{display:block}
+.chart-card{background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:24px;margin-bottom:20px}
+.chart-card h2{font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);margin-bottom:20px}
+.chart-wrap{position:relative;height:240px}
+.kpi-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:20px}
+.kpi{background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:16px 20px}
+.kpi .label{font-size:11px;color:var(--muted);letter-spacing:.1em;text-transform:uppercase;margin-bottom:4px}
+.kpi .value{font-family:var(--mono);font-size:22px;font-weight:500}
+.kpi .value.pos{color:var(--danger)}
+.kpi .value.neg{color:var(--accent)}
+#toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(80px);background:var(--text);color:#fff;padding:12px 24px;border-radius:6px;font-size:13px;font-weight:500;transition:transform .3s ease;pointer-events:none;z-index:100}
+#toast.show{transform:translateX(-50%) translateY(0)}
+.page{display:none}
+.page.active{display:block}
+@media(max-width:480px){.clock-block .time{font-size:40px}.btn-group{grid-template-columns:1fr}.summary{grid-template-columns:1fr}.kpi-grid{grid-template-columns:1fr 1fr}}
+</style>
+</head>
+<body>
+<header>
+  <h1>勤怠管理</h1>
+  <nav>
+    <a href="#" class="active" onclick="showPage('stamp',this)">打刻</a>
+    <a href="#" onclick="showPage('report',this)">レポート</a>
+  </nav>
+</header>
+
+<!-- 打刻ページ -->
+<div class="page active" id="page-stamp">
+<main>
+  <div class="clock-block">
+    <div class="date" id="dateLabel"></div>
+    <div class="time" id="liveClock">--:--:--</div>
+  </div>
+  <div style="text-align:center">
+    <div class="status-badge" id="statusBadge">
+      <span class="dot"></span>
+      <span id="statusLabel">未出勤</span>
+    </div>
+  </div>
+  <div class="btn-group" id="btnGroup"></div>
+  <div class="summary">
+    <div class="summary-item">
+      <div class="label">実働時間</div>
+      <div class="value" id="workH">0.00</div>
+    </div>
+    <div class="summary-item">
+      <div class="label">基本時間</div>
+      <div class="value">8.00</div>
+    </div>
+    <div class="summary-item">
+      <div class="label">残業時間</div>
+      <div class="value" id="otH">+0.00</div>
+    </div>
+  </div>
+  <div class="log-section">
+    <h2>本日の打刻ログ</h2>
+    <div class="log-list" id="logList">
+      <div class="log-item"><span class="log-type" style="color:var(--muted)">打刻なし</span></div>
+    </div>
+  </div>
+</main>
+</div>
+
+<!-- レポートページ -->
+<div class="page" id="page-report">
+<main style="max-width:1000px">
+  <div class="tabs">
+    <button class="tab-btn active" onclick="switchTab('day',this)">日次</button>
+    <button class="tab-btn" onclick="switchTab('week',this)">週次</button>
+    <button class="tab-btn" onclick="switchTab('month',this)">月次</button>
+    <button class="tab-btn" onclick="switchTab('year',this)">年次</button>
+  </div>
+  <div class="tab-panel active" id="tab-day">
+    <div class="kpi-grid">
+      <div class="kpi"><div class="label">実働時間</div><div class="value" id="kpi-day-work">--</div></div>
+      <div class="kpi"><div class="label">基本時間</div><div class="value">8h</div></div>
+      <div class="kpi"><div class="label">残業時間</div><div class="value" id="kpi-day-ot">--</div></div>
+    </div>
+    <div class="chart-card"><h2>本日の実働 / 基本時間</h2><div class="chart-wrap"><canvas id="chartDay"></canvas></div></div>
+  </div>
+  <div class="tab-panel" id="tab-week">
+    <div class="kpi-grid">
+      <div class="kpi"><div class="label">週合計</div><div class="value" id="kpi-week-work">--</div></div>
+      <div class="kpi"><div class="label">基本時間</div><div class="value">40h</div></div>
+      <div class="kpi"><div class="label">残業合計</div><div class="value" id="kpi-week-ot">--</div></div>
+    </div>
+    <div class="chart-card"><h2>今週の日別 実働時間</h2><div class="chart-wrap"><canvas id="chartWeekLine"></canvas></div></div>
+    <div class="chart-card"><h2>今週の日別 残業時間</h2><div class="chart-wrap"><canvas id="chartWeekBar"></canvas></div></div>
+  </div>
+  <div class="tab-panel" id="tab-month">
+    <div class="kpi-grid">
+      <div class="kpi"><div class="label">月合計</div><div class="value" id="kpi-month-work">--</div></div>
+      <div class="kpi"><div class="label">今月</div><div class="value" id="kpi-month-label">--</div></div>
+      <div class="kpi"><div class="label">残業合計</div><div class="value" id="kpi-month-ot">--</div></div>
+    </div>
+    <div class="chart-card"><h2>週別 実働時間</h2><div class="chart-wrap"><canvas id="chartMonthLine"></canvas></div></div>
+    <div class="chart-card"><h2>週別 残業時間</h2><div class="chart-wrap"><canvas id="chartMonthBar"></canvas></div></div>
+  </div>
+  <div class="tab-panel" id="tab-year">
+    <div class="kpi-grid">
+      <div class="kpi"><div class="label">年合計</div><div class="value" id="kpi-year-work">--</div></div>
+      <div class="kpi"><div class="label">対象年</div><div class="value" id="kpi-year-label">--</div></div>
+      <div class="kpi"><div class="label">残業合計</div><div class="value" id="kpi-year-ot">--</div></div>
+    </div>
+    <div class="chart-card"><h2>月別 実働時間</h2><div class="chart-wrap"><canvas id="chartYearLine"></canvas></div></div>
+    <div class="chart-card"><h2>月別 残業時間</h2><div class="chart-wrap"><canvas id="chartYearBar"></canvas></div></div>
+  </div>
+</main>
+</div>
+
+<div id="toast"></div>
+
+<script>
+const ACCENT = '#2c5f2e', DANGER = '#8b1a1a', MUTED = '#888580';
+const BASE_H = 8.0;
+let lastType = null;
+let charts = {};
+
+// ── 日付ユーティリティ ──
+function today()     { return new Date().toLocaleDateString('sv-SE'); }
+function fmt(d)      { return d.toLocaleDateString('ja-JP',{year:'numeric',month:'2-digit',day:'2-digit',weekday:'short'}); }
+function addDays(d,n){ const r=new Date(d); r.setDate(r.getDate()+n); return r.toLocaleDateString('sv-SE'); }
+function mondayOf(d) {
+  const dt = new Date(d); const day = dt.getDay();
+  dt.setDate(dt.getDate() - (day===0?6:day-1));
+  return dt.toLocaleDateString('sv-SE');
+}
+
+// ── ライブ時計 ──
+function updateClock() {
+  const now = new Date();
+  document.getElementById('liveClock').textContent = now.toLocaleTimeString('ja-JP',{hour12:false});
+  document.getElementById('dateLabel').textContent  = fmt(now);
+}
+updateClock(); setInterval(updateClock,1000);
+
+// ── 打刻状態の描画 ──
+function renderStatus(lt) {
+  lastType = lt;
+  const badge = document.getElementById('statusBadge');
+  const label = document.getElementById('statusLabel');
+  badge.className = 'status-badge';
+  const map = {
+    start:     ['working',  '勤務中'],
+    break_end: ['working',  '勤務中'],
+    break_start:['breaking','休憩中'],
+    end:       ['ended',    '退勤済'],
+  };
+  const [cls, txt] = map[lt] ?? ['', '未出勤'];
+  if (cls) badge.classList.add(cls);
+  label.textContent = txt;
+
+  const g = document.getElementById('btnGroup');
+  g.className = 'btn-group';
+  if (!lt) {
+    g.className += ' single';
+    g.innerHTML = `<button class="btn start" onclick="stamp('start')">▶ 勤務開始</button>`;
+  } else if (lt==='start'||lt==='break_end') {
+    g.innerHTML = `<button class="btn break" onclick="stamp('break_start')">⏸ 休憩開始</button>
+                   <button class="btn end"   onclick="stamp('end')">■ 勤務終了</button>`;
+  } else if (lt==='break_start') {
+    g.className += ' single';
+    g.innerHTML = `<button class="btn resume" onclick="stamp('break_end')">▶ 休憩終了</button>`;
+  } else {
+    g.className += ' single';
+    g.innerHTML = `<button class="btn" disabled>本日の勤務は終了しています</button>`;
+  }
+}
+
+// ── 打刻ログ描画 ──
+function renderLogs(logs) {
+  const typeLabel = {start:'▶ 勤務開始',break_start:'⏸ 休憩開始',break_end:'▶ 休憩終了',end:'■ 勤務終了'};
+  const el = document.getElementById('logList');
+  if (!logs.length) {
+    el.innerHTML = `<div class="log-item"><span class="log-type" style="color:var(--muted)">打刻なし</span></div>`;
+    return;
+  }
+  el.innerHTML = logs.map(l => `
+    <div class="log-item">
+      <span class="log-type">${typeLabel[l.type]}</span>
+      <span class="log-time">${l.stamped_at.slice(11,19)}</span>
+    </div>`).join('');
+}
+
+// ── 実働時間計算 ──
+function calcHours(logs) {
+  let workSec=0, workStart=null;
+  for (const l of logs) {
+    const t = new Date(l.stamped_at).getTime()/1000;
+    if (l.type==='start')       { workStart=t; }
+    else if (l.type==='break_start') { if(workStart){workSec+=t-workStart;workStart=null;} }
+    else if (l.type==='break_end')   { workStart=t; }
+    else if (l.type==='end')         { if(workStart){workSec+=t-workStart;workStart=null;} }
+  }
+  if (workStart) workSec += Date.now()/1000 - workStart;
+  return Math.round(workSec/36)/100;
+}
+
+// ── 打刻ページ初期化 ──
+async function initStamp() {
+  const res  = await fetch(`/api/logs/${today()}`);
+  const logs = await res.json();
+  const lt   = logs.length ? logs[logs.length-1].type : null;
+  renderStatus(lt);
+  renderLogs(logs);
+  const wh = calcHours(logs);
+  const ot = Math.round((wh - BASE_H)*100)/100;
+  document.getElementById('workH').textContent = wh.toFixed(2);
+  const otEl = document.getElementById('otH');
+  otEl.textContent = (ot>=0?'+':'')+ot.toFixed(2);
+  otEl.className = 'value' + (ot>0?' positive':ot<0?' negative':'');
+}
+
+// ── 打刻 ──
+async function stamp(action) {
+  document.querySelectorAll('.btn').forEach(b=>b.disabled=true);
+  const res  = await fetch('/api/stamp',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action})});
+  const data = await res.json();
+  showToast(data.msg);
+  if (data.ok) setTimeout(()=>initStamp(), 600);
+  else document.querySelectorAll('.btn').forEach(b=>b.disabled=false);
+}
+
+// ── グラフユーティリティ ──
+Chart.defaults.font.family = "'Noto Sans JP',sans-serif";
+Chart.defaults.font.size   = 11;
+Chart.defaults.color       = MUTED;
+
+function makeLineChart(id, labels, data, color) {
+  if (charts[id]) charts[id].destroy();
+  charts[id] = new Chart(document.getElementById(id), {
+    type:'line',
+    data:{labels,datasets:[{data,borderColor:color,backgroundColor:color+'22',borderWidth:2,pointRadius:4,pointBackgroundColor:color,fill:true,tension:.3}]},
+    options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},
+      scales:{x:{grid:{color:'#e8e6e0'}},y:{grid:{color:'#e8e6e0'},beginAtZero:true,ticks:{callback:v=>v+'h'}}}}
+  });
+}
+
+function makeBarChart(id, labels, data) {
+  if (charts[id]) charts[id].destroy();
+  charts[id] = new Chart(document.getElementById(id), {
+    type:'bar',
+    data:{labels,datasets:[{data,backgroundColor:data.map(v=>v>=0?DANGER+'cc':ACCENT+'cc'),borderRadius:3}]},
+    options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},
+      scales:{x:{grid:{color:'#e8e6e0'}},y:{grid:{color:'#e8e6e0'},ticks:{callback:v=>(v>=0?'+':'')+v+'h'}}}}
+  });
+}
+
+// ── レポート初期化 ──
+async function initReport() {
+  const t = today();
+
+  // 日次
+  const dayRes = await fetch(`/api/summary?from=${t}&to=${t}`);
+  const dayJson = await dayRes.json();
+  const dayH = dayJson.data[t] ?? 0;
+  const dayOT = Math.round((dayH-BASE_H)*100)/100;
+  document.getElementById('kpi-day-work').textContent = dayH+'h';
+  const dEl = document.getElementById('kpi-day-ot');
+  dEl.textContent = (dayOT>=0?'+':'')+dayOT+'h';
+  dEl.className = 'value'+(dayOT>0?' pos':dayOT<0?' neg':'');
+  if (charts['chartDay']) charts['chartDay'].destroy();
+  charts['chartDay'] = new Chart(document.getElementById('chartDay'),{
+    type:'bar',
+    data:{labels:['本日'],datasets:[
+      {label:'実働時間',data:[dayH],backgroundColor:ACCENT+'cc',borderRadius:3},
+      {label:'基本時間',data:[BASE_H],backgroundColor:MUTED+'44',borderRadius:3},
+    ]},
+    options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'bottom'}},
+      scales:{x:{grid:{color:'#e8e6e0'}},y:{grid:{color:'#e8e6e0'},beginAtZero:true,ticks:{callback:v=>v+'h'}}}}
+  });
+
+  // 週次
+  const wStart = mondayOf(t);
+  const wDates = Array.from({length:7},(_,i)=>addDays(wStart,i));
+  const wRes   = await fetch(`/api/summary?from=${wStart}&to=${wDates[6]}`);
+  const wJson  = await wRes.json();
+  const wLabels = wDates.map(d=>d.slice(5).replace('-','/'));
+  const wData   = wDates.map(d=>wJson.data[d]??0);
+  const wOT     = wData.map(h=>Math.round((h-BASE_H)*100)/100);
+  const wTotal  = Math.round(wData.reduce((a,b)=>a+b,0)*100)/100;
+  const wOTSum  = Math.round(wOT.reduce((a,b)=>a+b,0)*100)/100;
+  document.getElementById('kpi-week-work').textContent = wTotal+'h';
+  const wEl = document.getElementById('kpi-week-ot');
+  wEl.textContent = (wOTSum>=0?'+':'')+wOTSum+'h';
+  wEl.className = 'value'+(wOTSum>0?' pos':wOTSum<0?' neg':'');
+  makeLineChart('chartWeekLine', wLabels, wData,  ACCENT);
+  makeBarChart ('chartWeekBar',  wLabels, wOT);
+
+  // 月次
+  const mStart = t.slice(0,7)+'-01';
+  const mEnd   = new Date(t.slice(0,4),parseInt(t.slice(5,7)),0).toLocaleDateString('sv-SE');
+  const mRes   = await fetch(`/api/summary?from=${mStart}&to=${mEnd}`);
+  const mJson  = await mRes.json();
+  // 週ごとに集計
+  const weeks = {};
+  for (const [d, h] of Object.entries(mJson.data)) {
+    const wk = 'W'+getWeekNum(d);
+    weeks[wk] = (weeks[wk]??0) + h;
+  }
+  const mLabels = Object.keys(weeks);
+  const mData   = Object.values(weeks).map(h=>Math.round(h*100)/100);
+  const mOT     = mData.map(h=>Math.round((h-BASE_H*5)*100)/100);
+  const mTotal  = Math.round(mData.reduce((a,b)=>a+b,0)*100)/100;
+  const mOTSum  = Math.round(mOT.reduce((a,b)=>a+b,0)*100)/100;
+  document.getElementById('kpi-month-work').textContent  = mTotal+'h';
+  document.getElementById('kpi-month-label').textContent = t.slice(0,7).replace('-','年')+'月';
+  const mEl = document.getElementById('kpi-month-ot');
+  mEl.textContent = (mOTSum>=0?'+':'')+mOTSum+'h';
+  mEl.className = 'value'+(mOTSum>0?' pos':mOTSum<0?' neg':'');
+  makeLineChart('chartMonthLine', mLabels, mData, ACCENT);
+  makeBarChart ('chartMonthBar',  mLabels, mOT);
+
+  // 年次
+  const year = t.slice(0,4);
+  const yRes  = await fetch(`/api/summary?from=${year}-01-01&to=${year}-12-31`);
+  const yJson = await yRes.json();
+  const months = Array.from({length:12},(_,i)=>(i+1).toString().padStart(2,'0'));
+  const yLabels = months.map(m=>parseInt(m)+'月');
+  const yData   = months.map(m=>{
+    const prefix = `${year}-${m}`;
+    return Math.round(Object.entries(yJson.data).filter(([d])=>d.startsWith(prefix)).reduce((a,[,h])=>a+h,0)*100)/100;
+  });
+  const yOT    = yData.map(h=>Math.round((h-BASE_H*20)*100)/100);
+  const yTotal = Math.round(yData.reduce((a,b)=>a+b,0)*100)/100;
+  const yOTSum = Math.round(yOT.reduce((a,b)=>a+b,0)*100)/100;
+  document.getElementById('kpi-year-work').textContent  = yTotal+'h';
+  document.getElementById('kpi-year-label').textContent = year+'年';
+  const yEl = document.getElementById('kpi-year-ot');
+  yEl.textContent = (yOTSum>=0?'+':'')+yOTSum+'h';
+  yEl.className = 'value'+(yOTSum>0?' pos':yOTSum<0?' neg':'');
+  makeLineChart('chartYearLine', yLabels, yData, ACCENT);
+  makeBarChart ('chartYearBar',  yLabels, yOT);
+}
+
+function getWeekNum(dateStr) {
+  const d = new Date(dateStr);
+  const start = new Date(d.getFullYear(),0,1);
+  return Math.ceil(((d-start)/86400000 + start.getDay()+1)/7);
+}
+
+// ── ページ切り替え ──
+function showPage(id, el) {
+  event.preventDefault();
+  document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
+  document.querySelectorAll('header nav a').forEach(a=>a.classList.remove('active'));
+  document.getElementById('page-'+id).classList.add('active');
+  el.classList.add('active');
+  if (id==='report') initReport();
+}
+
+function switchTab(id, btn) {
+  document.querySelectorAll('.tab-panel').forEach(p=>p.classList.remove('active'));
+  document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
+  document.getElementById('tab-'+id).classList.add('active');
+  btn.classList.add('active');
+}
+
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.classList.add('show');
+  setTimeout(()=>t.classList.remove('show'),2500);
+}
+
+// 初期化
+initStamp();
+</script>
+</body>
+</html>
