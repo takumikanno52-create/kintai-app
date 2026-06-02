@@ -1,49 +1,54 @@
-require('express-async-errors');
 const express = require('express');
 const path    = require('path');
-const db      = require('./database');
+const { getDB, save } = require('./database');
 
-const app        = express();
-const BASE_HOURS = 8.0;
+const app     = express();
+const BASE_H  = 8.0;
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(express.static(path.join(__dirname, 'public')));
 
 // ── 打刻ログ取得 ──
-app.get('/api/logs/:date', (req, res) => {
-  const logs = db.prepare(
-    'SELECT type, stamped_at FROM time_logs WHERE date = ? ORDER BY stamped_at ASC'
-  ).all(req.params.date);
-  res.json(logs);
+app.get('/api/logs/:date', async (req, res) => {
+  const db   = await getDB();
+  const stmt = db.prepare('SELECT type, stamped_at FROM time_logs WHERE date = ? ORDER BY stamped_at ASC');
+  stmt.bind([req.params.date]);
+  const rows = [];
+  while (stmt.step()) rows.push(stmt.getAsObject());
+  stmt.free();
+  res.json(rows);
 });
 
 // ── 打刻処理 ──
-app.post('/api/stamp', (req, res) => {
-  const { action } = req.body;
-  const today = new Date().toLocaleDateString('sv-SE');
-  const now   = new Date().toLocaleString('sv-SE').replace('T', ' ');
+app.post('/api/stamp', async (req, res) => {
+  const db     = await getDB();
+  const action = req.body.action;
+  const now    = new Date();
+  const today  = now.toLocaleDateString('sv-SE');
+  const nowStr = now.toLocaleString('sv-SE').replace('T', ' ');
 
-  const last = db.prepare(
-    'SELECT type FROM time_logs WHERE date = ? ORDER BY stamped_at DESC LIMIT 1'
-  ).get(today);
-  const lastType = last?.type ?? null;
+  const stmt = db.prepare('SELECT type FROM time_logs WHERE date = ? ORDER BY stamped_at DESC LIMIT 1');
+  stmt.bind([today]);
+  const last     = stmt.step() ? stmt.getAsObject() : null;
+  stmt.free();
+  const lastType = last ? last.type : null;
 
   const validMap = {
-    null:          ['start'],
-    start:         ['break_start', 'end'],
-    break_start:   ['break_end'],
-    break_end:     ['break_start', 'end'],
-    end:           [],
+    'null':        ['start'],
+    'start':       ['break_start', 'end'],
+    'break_start': ['break_end'],
+    'break_end':   ['break_start', 'end'],
+    'end':         [],
   };
 
-  if (!validMap[lastType]?.includes(action)) {
+  const key = lastType === null ? 'null' : lastType;
+  if (!(validMap[key] || []).includes(action)) {
     return res.json({ ok: false, msg: '現在その操作はできません' });
   }
 
-  db.prepare(
-    'INSERT INTO time_logs (date, type, stamped_at) VALUES (?, ?, ?)'
-  ).run(today, action, now);
+  db.run('INSERT INTO time_logs (date, type, stamped_at) VALUES (?, ?, ?)', [today, action, nowStr]);
+  save();
 
   const msgs = {
     start:       '勤務を開始しました',
@@ -51,16 +56,20 @@ app.post('/api/stamp', (req, res) => {
     break_end:   '休憩を終了しました',
     end:         '勤務を終了しました',
   };
-
   res.json({ ok: true, msg: msgs[action], last_type: action });
 });
 
 // ── 集計API ──
-app.get('/api/summary', (req, res) => {
+app.get('/api/summary', async (req, res) => {
+  const db   = await getDB();
   const { from, to } = req.query;
-  const rows = db.prepare(
+  const stmt = db.prepare(
     'SELECT date, type, stamped_at FROM time_logs WHERE date BETWEEN ? AND ? ORDER BY date, stamped_at'
-  ).all(from, to);
+  );
+  stmt.bind([from, to]);
+  const rows = [];
+  while (stmt.step()) rows.push(stmt.getAsObject());
+  stmt.free();
 
   const byDate = {};
   for (const row of rows) {
@@ -74,19 +83,15 @@ app.get('/api/summary', (req, res) => {
       const t = new Date(log.stamped_at).getTime() / 1000;
       switch (log.type) {
         case 'start':       workStart = t; break;
-        case 'break_start':
-          if (workStart) { workSec += t - workStart; workStart = null; }
-          break;
+        case 'break_start': if (workStart) { workSec += t - workStart; workStart = null; } break;
         case 'break_end':   workStart = t; break;
-        case 'end':
-          if (workStart) { workSec += t - workStart; workStart = null; }
-          break;
+        case 'end':         if (workStart) { workSec += t - workStart; workStart = null; } break;
       }
     }
     if (workStart) workSec += Date.now() / 1000 - workStart;
     result[date] = Math.round(workSec / 36) / 100;
   }
-  res.json({ data: result, base: BASE_HOURS });
+  res.json({ data: result, base: BASE_H });
 });
 
 const PORT = process.env.PORT || 3000;
